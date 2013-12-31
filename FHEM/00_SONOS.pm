@@ -2792,7 +2792,6 @@ sub SONOS_Discover_Callback($$$) {
 			while ($zoneGroupState =~ m/ChannelMapSet="(.*?)"/gi) {
 				my $mapSet = $1;
 				if ($mapSet =~ m/$udnShort/) {
-					$master = 0;
 					SONOS_Log undef, 1, 'Found ChannelMapSet: '.$mapSet;
 					# Erst das etwaige Anhängekürzel ermitteln
 					foreach my $elem (split(/;/, $mapSet)) {
@@ -2802,14 +2801,20 @@ sub SONOS_Discover_Callback($$$) {
 					$fieldType = substr($topoType, 1) if
 
 					# Master ermitteln, da nur dieser ein AlbumArt und einen normalen Titel erhalten wird
-					my @zoneGroups = ();
-					while ($zoneGroupState =~ m/(<ZoneGroup.*?<\/ZoneGroup>)/gi) {
-						push @zoneGroups, $1;
+					my @zoneGroupMember = ();
+					while ($zoneGroupState =~ m/(<ZoneGroupMember.*?\/>)/gi) {
+						push @zoneGroupMember, $1;
 					}
-					foreach my $zoneGroup (@zoneGroups) {
-						$master = ($1 eq $udnShort) if ($zoneGroup =~ m/<ZoneGroup Coordinator="(.*?)".*?ChannelMapSet=".*?$udnShort.*?".*?<\/ZoneGroup>/i);
+					foreach my $zoneGroupMemberElem (@zoneGroupMember) {
+						my $invisible = 0;
+						$invisible = 1 if ($zoneGroupMemberElem =~ m/<ZoneGroupMember.*?UUID="$udnShort".*?Invisible="1".*?\/>/i);
 
-						last if $master;
+						my $isZoneBridge = 0;
+						$isZoneBridge = 1 if ($zoneGroupMemberElem =~ m/<ZoneGroupMember.*?UUID="$udnShort".*?IsZoneBridge="1".*?\/>/i);
+
+						$master = !$invisible || $isZoneBridge;
+
+						last if (!$master);
 					}
 
 					# Wenn wir einen Eintrag gefunden haben, dann können wir beenden. Die anderen sollten identische Informationen enthalten.
@@ -2821,7 +2826,6 @@ sub SONOS_Discover_Callback($$$) {
 			while ($zoneGroupState =~ m/HTSatChanMapSet="(.*?)"/gi) {
 				my $mapSet = $1;
 				if ($mapSet =~ m/$udnShort/) {
-					$master = 0;
 					SONOS_Log undef, 1, 'Found HTSatChanMapSet: '.$mapSet;
 					foreach my $elem (split(/;/, $mapSet)) {
 						$topoType = '_'.$1 if ($elem =~ m/$udnShort:(.*)/);
@@ -2831,14 +2835,20 @@ sub SONOS_Discover_Callback($$$) {
 					$fieldType = substr($topoType, 1);
 
 					# Master ermitteln, da nur dieser ein AlbumArt und einen normalen Titel erhalten wird
-					my @zoneGroups = ();
-					while ($zoneGroupState =~ m/(<ZoneGroup.*?<\/ZoneGroup>)/gi) {
-						push @zoneGroups, $1;
+					my @zoneGroupMember = ();
+					while ($zoneGroupState =~ m/(<ZoneGroupMember.*?\/>)/gi) {
+						push @zoneGroupMember, $1;
 					}
-					foreach my $zoneGroup (@zoneGroups) {
-						$master = ($1 eq $udnShort) if ($zoneGroup =~ m/<ZoneGroup Coordinator="(.*?)".*?HTSatChanMapSet=".*?$udnShort.*?".*?<\/ZoneGroup>/i);
+					foreach my $zoneGroupMemberElem (@zoneGroupMember) {
+						my $invisible = 0;
+						$invisible = 1 if ($zoneGroupMemberElem =~ m/<ZoneGroupMember.*?UUID="$udnShort".*?Invisible="1".*?\/>/i);
 
-						last if $master;
+						my $isZoneBridge = 0;
+						$isZoneBridge = 1 if ($zoneGroupMemberElem =~ m/<ZoneGroupMember.*?UUID="$udnShort".*?IsZoneBridge="1".*?\/>/i);
+
+						$master = !$invisible || $isZoneBridge;
+
+						last if (!$master);
 					}
 
 					# Wenn wir einen Eintrag gefunden haben, dann können wir beenden. Die anderen sollten identische Informationen enthalten.
