@@ -944,7 +944,8 @@ sub SONOS_Set($@) {
 			for(my $i = 0; $i <= $#list; $i++) { # Die jeweilige Desired-List
 				my $elem = $list[$i];
 				my $elemHash = SONOS_getDeviceDefHash($elem);
-				if (!is_array($elemHash)) {
+				my $reftype  = reftype $elemHash;
+				if (!defined($reftype) || $reftype ne 'HASH') {
 					SONOS_Log undef, 5, "Hash not found for Device '$elem'. Is it gone away or not known?";
 					return undef;
 				}
