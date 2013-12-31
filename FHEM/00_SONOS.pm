@@ -37,7 +37,7 @@
 #		Es werden nun zusätzliche Readings (beginnend mit 'next') mit den Informationen über den nächsten Titel befüllt. Diese können natürlich auch für InfoSummarize verwendet werden
 #		Es kann nun ein Eintrag aus der Sonos-Favoritenliste gestartet werden (Playlist oder Direkteintrag)
 #		Das Benennen der Sonos-Fhem-Devices wird nun auf Namensdoppelungen hin überprüft, und der Name eindeutig gemacht. Dabei wird im Normalfall das neue Reading 'fieldType' an den Namen angehangen. Nur der Master einer solchen Paarung bekommt dann den Original-Raumnamen als Fhem-Devicenamen
-#		Es gibt ein neues Reading 'fieldType', mit dem man erkennne kann, an welcher Position in einer Paarung dieser Zoneplayer steht
+#		Es gibt ein neues Reading 'fieldType', mit dem man erkennen kann, an welcher Position in einer Paarung dieser Zoneplayer steht
 #		Diverse Probleme mit Gruppen und Paarungen beim neu Erkennen der Sonos-Landschaft wurden beseitigt
 #		Es gibt jetzt einen Getter 'EthernetPortStatus', der den Status des gewünschten Ethernet-Ports liefert
 #		Es gibt jetzt einen Setter 'Reboot', der einen Neustart des Zoneplayers durchführt
@@ -944,7 +944,8 @@ sub SONOS_Set($@) {
 			for(my $i = 0; $i <= $#list; $i++) { # Die jeweilige Desired-List
 				my $elem = $list[$i];
 				my $elemHash = SONOS_getDeviceDefHash($elem);
-				if (!is_array($elemHash)) {
+				my $reftype  = reftype $elemHash;
+				if (!defined($reftype) || $reftype ne 'HASH') {
 					SONOS_Log undef, 5, "Hash not found for Device '$elem'. Is it gone away or not known?";
 					return undef;
 				}
@@ -2788,9 +2789,10 @@ sub SONOS_Discover_Callback($$$) {
 			SONOS_Log undef, 1, 'ZoneGroupState: '.$zoneGroupState;
 
 			# Ist dieser Player in einem ChannelMapSet (also einer Paarung) enthalten?
-			while ($zoneGroupState =~ m/ChannelMapSet="(.*?)"/i) {
+			while ($zoneGroupState =~ m/ChannelMapSet="(.*?)"/gi) {
 				my $mapSet = $1;
-				if ($mapSet =~ m/$udnShort/i) {
+				if ($mapSet =~ m/$udnShort/) {
+					$master = 0;
 					SONOS_Log undef, 1, 'Found ChannelMapSet: '.$mapSet;
 					# Erst das etwaige Anhängekürzel ermitteln
 					foreach my $elem (split(/;/, $mapSet)) {
@@ -2806,6 +2808,8 @@ sub SONOS_Discover_Callback($$$) {
 					}
 					foreach my $zoneGroup (@zoneGroups) {
 						$master = ($1 eq $udnShort) if ($zoneGroup =~ m/<ZoneGroup Coordinator="(.*?)".*?ChannelMapSet=".*?$udnShort.*?".*?<\/ZoneGroup>/i);
+
+						last if $master;
 					}
 
 					# Wenn wir einen Eintrag gefunden haben, dann können wir beenden. Die anderen sollten identische Informationen enthalten.
@@ -2814,9 +2818,10 @@ sub SONOS_Discover_Callback($$$) {
 			}
 
 			# Ist dieser Player in einer HTSatChanMapSet (also einem Surround-System) enthalten?
-			while ($zoneGroupState =~ m/HTSatChanMapSet="(.*?)"/i) {
+			while ($zoneGroupState =~ m/HTSatChanMapSet="(.*?)"/gi) {
 				my $mapSet = $1;
-				if ($mapSet =~ m/$udnShort/i) {
+				if ($mapSet =~ m/$udnShort/) {
+					$master = 0;
 					SONOS_Log undef, 1, 'Found HTSatChanMapSet: '.$mapSet;
 					foreach my $elem (split(/;/, $mapSet)) {
 						$topoType = '_'.$1 if ($elem =~ m/$udnShort:(.*)/);
@@ -2832,6 +2837,8 @@ sub SONOS_Discover_Callback($$$) {
 					}
 					foreach my $zoneGroup (@zoneGroups) {
 						$master = ($1 eq $udnShort) if ($zoneGroup =~ m/<ZoneGroup Coordinator="(.*?)".*?HTSatChanMapSet=".*?$udnShort.*?".*?<\/ZoneGroup>/i);
+
+						last if $master;
 					}
 
 					# Wenn wir einen Eintrag gefunden haben, dann können wir beenden. Die anderen sollten identische Informationen enthalten.
