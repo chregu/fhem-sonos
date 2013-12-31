@@ -2788,7 +2788,7 @@ sub SONOS_Discover_Callback($$$) {
 			SONOS_Log undef, 1, 'ZoneGroupState: '.$zoneGroupState;
 
 			# Ist dieser Player in einem ChannelMapSet (also einer Paarung) enthalten?
-			while ($zoneGroupState =~ m/ChannelMapSet="(.*?)"/i) {
+			while ($zoneGroupState =~ m/ChannelMapSet="(.*?)"/gi) {
 				my $mapSet = $1;
 				if ($mapSet =~ m/$udnShort/i) {
 					SONOS_Log undef, 1, 'Found ChannelMapSet: '.$mapSet;
@@ -2814,7 +2814,7 @@ sub SONOS_Discover_Callback($$$) {
 			}
 
 			# Ist dieser Player in einer HTSatChanMapSet (also einem Surround-System) enthalten?
-			while ($zoneGroupState =~ m/HTSatChanMapSet="(.*?)"/i) {
+			while ($zoneGroupState =~ m/HTSatChanMapSet="(.*?)"/gi) {
 				my $mapSet = $1;
 				if ($mapSet =~ m/$udnShort/i) {
 					SONOS_Log undef, 1, 'Found HTSatChanMapSet: '.$mapSet;
