@@ -2807,9 +2807,9 @@ sub SONOS_Discover_Callback($$$) {
 						push @zoneGroups, $1;
 					}
 					foreach my $zoneGroup (@zoneGroups) {
-						$master = ($1 eq $udnShort) if ($zoneGroup =~ m/<ZoneGroup Coordinator="(.*?)".*?ChannelMapSet=".*?$udnShort.*?".*?<\/ZoneGroup>/i);
+						$master = ($1 eq $udnShort) if ($zoneGroup =~ m/Coordinator="(.*?)".*?ChannelMapSet=".*?$udnShort.*?"/i);
 
-						last if $master;
+						last if ($master);
 					}
 
 					# Wenn wir einen Eintrag gefunden haben, dann können wir beenden. Die anderen sollten identische Informationen enthalten.
@@ -2836,9 +2836,9 @@ sub SONOS_Discover_Callback($$$) {
 						push @zoneGroups, $1;
 					}
 					foreach my $zoneGroup (@zoneGroups) {
-						$master = ($1 eq $udnShort) if ($zoneGroup =~ m/<ZoneGroup Coordinator="(.*?)".*?HTSatChanMapSet=".*?$udnShort.*?".*?<\/ZoneGroup>/i);
+						$master = ($1 eq $udnShort) if ($zoneGroup =~ m/Coordinator="(.*?)".*?HTSatChanMapSet=".*?$udnShort.*?"/i);
 
-						last if $master;
+						last if ($master);
 					}
 
 					# Wenn wir einen Eintrag gefunden haben, dann können wir beenden. Die anderen sollten identische Informationen enthalten.
