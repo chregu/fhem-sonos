@@ -2784,7 +2784,7 @@ sub SONOS_Discover_Callback($$$) {
 		my $topoType = '';
 		my $fieldType = '';
 		my $master = 1;
-		if ($SONOS_ZoneGroupTopologyProxy{$udn}) {
+		if ($SONOS_ZoneGroupTopologyProxy{$udn} && $SONOS_ZoneGroupTopologyProxy{$udn}->can("GetZoneGroupState")) {
 			my $zoneGroupState = $SONOS_ZoneGroupTopologyProxy{$udn}->GetZoneGroupState()->getValue('ZoneGroupState');
 			SONOS_Log undef, 1, 'ZoneGroupState: '.$zoneGroupState;
 
@@ -4908,6 +4908,26 @@ sub SONOS_Client_IsAlive() {
 
 		# Alle bekannten Player durchgehen, wenn der Thread nicht beendet werden soll
 		if ($runEndlessLoop) {
+			
+			# check if sonos_thread running and restart it, if not
+			if (threads->object($SONOS_Thread)->can("is_running")) {
+				if (threads->object($SONOS_Thread)->is_running()) {
+					SONOS_Log undef, 1, 'SONOS_Thread is running';
+				} else {
+					SONOS_Log undef, 1, 'SONOS_Thread is NOT running';
+					
+					my $thr = threads->object($SONOS_Thread);
+					if ($thr) {
+						SONOS_Log undef, 3, 'Trying to kill Sonos_Thread...';
+						$thr->kill('INT');
+					} else {
+						SONOS_Log undef, 3, 'Sonos_Thread is already killed!';
+					}
+					sleep(5);
+					$SONOS_Thread = threads->create(\&SONOS_Discover)->tid();
+				}
+			}
+			
 			my @list = @{$SONOS_Client_Data{PlayerAlive}};
 			my @toAnnounce = ();
 			for(my $i = 0; $i <= $#list; $i++) {
