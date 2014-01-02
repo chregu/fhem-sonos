@@ -1964,9 +1964,21 @@ sub SONOS_Discover() {
 		return 1;
 	};
 
-	$SONOS_Controlpoint = UPnP::ControlPoint->new(SearchPort => 8008 + threads->tid() - 1, SubscriptionPort => 9009 + threads->tid() - 1, SubscriptionURL => '/eventSub', MaxWait => 20);
-	$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
-	$SONOS_Controlpoint->handle;
+	my $error = "first start";
+	while ($error) {
+		eval {
+			if ($error ne "first start") {
+				SONOS_Log undef, 3, 'Error captured in Controlpoint: ' . $error;
+				SONOS_StopControlPoint();
+			}
+			SONOS_Log undef, 3, 'Start Controlpoint';
+			$SONOS_Controlpoint = UPnP::ControlPoint->new(SearchPort => 8008 + threads->tid() - 1, SubscriptionPort => 9009 + threads->tid() - 1, SubscriptionURL => '/eventSub', MaxWait => 20);
+			$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
+			SONOS_Log undef, 3, 'Handle Controlpoint';
+			$SONOS_Controlpoint->handle;
+		};
+		$error = $@;
+	}
 
 	SONOS_Log undef, 3, 'UPnP-Thread wurde beendet.';
 	$SONOS_Thread = -1;
@@ -2455,8 +2467,8 @@ sub SONOS_StopControlPoint {
 		$SONOS_Controlpoint->stopSearch($SONOS_Search);
 		$SONOS_Controlpoint->stopHandling();
 		undef($SONOS_Controlpoint);
-
-		SONOS_Log undef, 4, 'ControlPoint is successfully stopped!';
+		undef($SONOS_Search);
+		SONOS_Log undef, 3, 'ControlPoint is successfully stopped!';
 	}
 }
 
