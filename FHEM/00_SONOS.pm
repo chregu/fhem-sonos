@@ -1049,6 +1049,12 @@ sub SONOS_Discover() {
 	$SIG{'PIPE'} = 'IGNORE';
 	$SIG{'CHLD'} = 'IGNORE';
 
+	$SIG{__DIE__} = sub {
+		
+	#	SONOS_Log undef, 3, '__DIE__ in Sonos_Discover. Kill it';
+
+	#	threads->self()->kill('INT');
+	};
 	# Thread 'cancellation' signal handler
 	$SIG{'INT'} = sub {
 		# Sendeliste leeren
@@ -1920,10 +1926,18 @@ sub SONOS_Discover() {
 		return 1;
 	};
 
-	$SONOS_Controlpoint = UPnP::ControlPoint->new(SearchPort => 8008 + threads->tid() - 1, SubscriptionPort => 9009 + threads->tid() - 1, SubscriptionURL => '/eventSub', MaxWait => 20);
-	$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
-	$SONOS_Controlpoint->handle;
-
+	eval {
+		$SONOS_Controlpoint = UPnP::ControlPoint->new(SearchPort => 8008 + threads->tid() - 1, SubscriptionPort => 9009 + threads->tid() - 1, SubscriptionURL => '/eventSub', MaxWait => 20);
+		$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
+		$SONOS_Controlpoint->handle;
+	}; 
+	while ($@) {
+		eval {
+			SONOS_Log undef, 3, 'Error captured in Callbacks Line 1931 : ' . $@;
+			$SONOS_Controlpoint->handle;
+		};
+	}
+	
 	SONOS_Log undef, 3, 'UPnP-Thread wurde beendet.';
 	$SONOS_Thread = -1;
 
@@ -4541,16 +4555,26 @@ if (defined($SONOS_ListenPort)) {
 		# Hauptschleife beenden
 		$SONOS_Client_NormalQueueWorking = 0;
 		$runEndlessLoop = 0;
-
+		my $thr = 0;
 		# Sub-Threads beenden, sofern vorhanden
 		if ($SONOS_Thread != -1) {
-			threads->object($SONOS_Thread)->kill('INT')->detach();
+			$thr = threads->object($SONOS_Thread);
+			if ($thr) {
+				SONOS_Log undef, 3, 'Trying to kill Sonos_Thread...';
+				$thr->kill('INT')->detach();
+			}
 		}
 		if ($SONOS_Thread_IsAlive != -1) {
-			threads->object($SONOS_Thread_IsAlive)->kill('INT')->detach();
+			$thr = threads->object($SONOS_Thread_IsAlive);
+			if ($thr) {
+				$thr->kill('INT')->detach();
+			}
 		}
 		if ($SONOS_Thread_PlayerRestore != -1) {
-			threads->object($SONOS_Thread_PlayerRestore)->kill('INT')->detach();
+			$thr = threads->object($SONOS_Thread_PlayerRestore);
+			if ($thr) {
+				$thr->kill('INT')->detach();
+			}
 		}
 	};
 
@@ -4910,23 +4934,22 @@ sub SONOS_Client_IsAlive() {
 		if ($runEndlessLoop) {
 			
 			# check if sonos_thread running and restart it, if not
-			if (threads->object($SONOS_Thread)->can("is_running")) {
-				if (threads->object($SONOS_Thread)->is_running()) {
-					SONOS_Log undef, 1, 'SONOS_Thread is running';
+			my $thr = threads->object($SONOS_Thread); 
+			if ($thr && $thr->can("is_running") && $thr->is_running()) {
+				SONOS_Log undef, 5, 'SONOS_Thread is running';
+			} else {
+				SONOS_Log undef, 3, 'SONOS_Thread is NOT running';
+				if ($thr) {
+					SONOS_Log undef, 3, 'Trying to kill Sonos_Thread...';
+					$thr->kill('INT')->detach();
+					$thr = undef;
 				} else {
-					SONOS_Log undef, 1, 'SONOS_Thread is NOT running';
-					
-					my $thr = threads->object($SONOS_Thread);
-					if ($thr) {
-						SONOS_Log undef, 3, 'Trying to kill Sonos_Thread...';
-						$thr->kill('INT');
-					} else {
-						SONOS_Log undef, 3, 'Sonos_Thread is already killed!';
-					}
-					sleep(5);
-					$SONOS_Thread = threads->create(\&SONOS_Discover)->tid();
+					SONOS_Log undef, 3, 'Sonos_Thread is already killed!';
 				}
+				sleep(5);
+				$SONOS_Thread = threads->create(\&SONOS_Discover)->tid();
 			}
+			
 			
 			my @list = @{$SONOS_Client_Data{PlayerAlive}};
 			my @toAnnounce = ();
