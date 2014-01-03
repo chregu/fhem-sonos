@@ -19,7 +19,7 @@
 #  * threads
 #  * Thread::Queue
 #
-#  Version 2.4 - December, 2013
+#  Version 2.5 - January, 2014
 #
 #  define <name> SONOS <host:port> [interval]
 #
@@ -29,6 +29,10 @@
 #
 ########################################################################################
 # Changelog
+#
+# 2.5:	Verwendung und Speicherung der Benutzer-IDs für Spotify und Napster wurden stabiler gegenüber Sonderzeichen gemacht
+#		Spotify-URLs werden im Reading 'currentTrackURI' und 'nextTrackURI' lesbarer abgelegt
+#		Ein Fehler beim Öffnen von M3U-Playlistdateien wurde behoben (dafür Danke an John)
 #
 # 2.4:	Initiale Lautstärkenermittlung wurde nun abgesichert, falls die Anfrage beim Player fehlschlägt
 #		Verbesserte Gruppenerkennung für die Anzeige der Informationen wie Titel usw.
@@ -613,7 +617,7 @@ sub SONOS_Read($) {
 					SONOS_Log undef, 4, "QA-Anfrage(".$chash->{NAME}."): $1:$2:$3";
 					DevIo_SimpleWrite($hash, "A:$1:$2:".AttrVal($chash->{NAME}, $2, $3)."\r\n", 0);
 				} else {
-					SONOS_Log undef, 4, "Fehlerhafte QA-Anfrage: $1:$2:$3";
+					SONOS_Log undef, 1, "Fehlerhafte QA-Anfrage: $1:$2:$3";
 					DevIo_SimpleWrite($hash, "A:$1:$2:$3\r\n", 0);
 				}
 			} elsif ($line =~ m/QR:(.*?):(.*?):(.*)/) { # Wenn ein QR (Question-Reading) gefordert wurde, dann auch zurückliefern
@@ -628,7 +632,7 @@ sub SONOS_Read($) {
 					SONOS_Log undef, 4, "QR-Anfrage(".$chash->{NAME}."): $1:$2:$3";
 					DevIo_SimpleWrite($hash, "R:$1:$2:".ReadingsVal($chash->{NAME}, $2, $3)."\r\n", 0);
 				} else {
-					SONOS_Log undef, 4, "Fehlerhafte QR-Anfrage: $1:$2:$3";
+					SONOS_Log undef, 1, "Fehlerhafte QR-Anfrage: $1:$2:$3";
 					DevIo_SimpleWrite($hash, "R:$1:$2:$3\r\n", 0);
 				}
 			} elsif ($line =~ m/QD:(.*?):(.*?):(.*)/) { # Wenn ein QD (Question-Definition) gefordert wurde, dann auch zurückliefern
@@ -647,7 +651,7 @@ sub SONOS_Read($) {
 						DevIo_SimpleWrite($hash, "D:$1:$2:$3\r\n", 0);
 					}
 				} else {
-					SONOS_Log undef, 4, "Fehlerhafte QD-Anfrage: $1:$2:$3";
+					SONOS_Log undef, 1, "Fehlerhafte QD-Anfrage: $1:$2:$3";
 					DevIo_SimpleWrite($hash, "D:$1:$2:$3\r\n", 0);
 				}
 			} elsif ($line =~ m/DoWorkAnswer:(.*?):(.*?):(.*)/) {
@@ -1483,8 +1487,7 @@ sub SONOS_Discover() {
 							my @Metas = ();
 
 							# Versuche die Datei zu öffnen
-							open(FILE, '<'.$1);
-							if ($!) {
+							if (!open(FILE, '<'.$1)) {
 								SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': Error during opening file "'.$1.'": '.$!);
 								return;
 							};
@@ -2013,8 +2016,8 @@ sub SONOS_CreateURIMeta($) {
 	my ($res) = @_;
 	my $meta = $SONOS_DIDLHeader.'<item id="" parentID="" restricted="true"><dc:title></dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class><desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">RINCON_AssociatedZPUDN</desc></item>'.$SONOS_DIDLFooter;
 
-	my $userID_Spotify = SONOS_Client_Data_Retreive('undef', 'reading', 'UserId_Spotify', '-');
-	my $userID_Napster = SONOS_Client_Data_Retreive('undef', 'reading', 'UserId_Napster', '-');
+	my $userID_Spotify = uri_unescape(SONOS_Client_Data_Retreive('undef', 'reading', 'UserID_Spotify', '-'));
+	my $userID_Napster = uri_unescape(SONOS_Client_Data_Retreive('undef', 'reading', 'UserID_Napster', '-'));
 
 	# Wenn es ein Spotify- oder Napster-Titel ist, dann den Benutzernamen extrahieren
 	if ($res =~ m/^(x-sonos-spotify:)(.*?)(\?.*?)/) {
@@ -2343,8 +2346,9 @@ sub SONOS_GetURIFromQueueValue($) {
 	my ($songURI) = @_;
 
 	# SongURI erweitern/korrigieren
-	$songURI = $1 if ($songURI =~ m/^x-file-cifs:(.*)/);
-	$songURI = 'http:'.$1 if ($songURI =~ m/^x-rincon-mp3radio:(.*)/);
+	$songURI = $1 if ($songURI =~ m/^x-file-cifs:(.*)/i);
+	$songURI = 'http:'.$1 if ($songURI =~ m/^x-rincon-mp3radio:(.*)/i);
+	$songURI = uri_unescape($songURI) if ($songURI =~ m/^x-sonos-spotify:/i);
 
 	return $songURI;
 }
@@ -2374,11 +2378,11 @@ sub SONOS_CheckProxyObject($$) {
 	my ($udn, $proxyObject) = @_;
 
 	if (defined($proxyObject)) {
-		SONOS_Log undef, 4, 'ProxyObject exists: '.$proxyObject;
+		SONOS_Log $udn, 4, 'ProxyObject exists: '.$proxyObject;
 
 		return 1;
 	} else {
-		SONOS_Log undef, 3, 'ProxyObject does not exists';
+		SONOS_Log $udn, 3, 'ProxyObject does not exists';
 
 		# Das Aufräumen der ProxyObjects und das Erzeugen des Notify wurde absichtlich nicht hier reingeschrieben, da es besser im IsAlive-Checker aufgehoben ist.
 		SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', 'CheckProxyObject-ERROR: SonosPlayer disappeared?');
@@ -2786,18 +2790,18 @@ sub SONOS_Discover_Callback($$$) {
 		my $master = 1;
 		if ($SONOS_ZoneGroupTopologyProxy{$udn}) {
 			my $zoneGroupState = $SONOS_ZoneGroupTopologyProxy{$udn}->GetZoneGroupState()->getValue('ZoneGroupState');
-			SONOS_Log undef, 1, 'ZoneGroupState: '.$zoneGroupState;
+			SONOS_Log undef, 5, 'ZoneGroupState: '.$zoneGroupState;
 
 			# Ist dieser Player in einem ChannelMapSet (also einer Paarung) enthalten?
 			while ($zoneGroupState =~ m/ChannelMapSet="(.*?)"/gi) {
 				my $mapSet = $1;
 				if ($mapSet =~ m/$udnShort/) {
-					SONOS_Log undef, 1, 'Found ChannelMapSet: '.$mapSet;
+					SONOS_Log undef, 5, 'Found ChannelMapSet: '.$mapSet;
 					# Erst das etwaige Anhängekürzel ermitteln
 					foreach my $elem (split(/;/, $mapSet)) {
 						$topoType = '_'.$1 if ($elem =~ m/$udnShort:(.*?),(.*)/);
 					}
-					SONOS_Log undef, 1, 'Retrieved TopoType: '.$topoType;
+					SONOS_Log undef, 4, 'Retrieved TopoType: '.$topoType;
 					$fieldType = substr($topoType, 1) if
 
 					# Master ermitteln, da nur dieser ein AlbumArt und einen normalen Titel erhalten wird
@@ -2826,12 +2830,12 @@ sub SONOS_Discover_Callback($$$) {
 			while ($zoneGroupState =~ m/HTSatChanMapSet="(.*?)"/gi) {
 				my $mapSet = $1;
 				if ($mapSet =~ m/$udnShort/) {
-					SONOS_Log undef, 1, 'Found HTSatChanMapSet: '.$mapSet;
+					SONOS_Log undef, 5, 'Found HTSatChanMapSet: '.$mapSet;
 					foreach my $elem (split(/;/, $mapSet)) {
 						$topoType = '_'.$1 if ($elem =~ m/$udnShort:(.*)/);
 					}
 					$topoType =~ s/,/_/g;
-					SONOS_Log undef, 1, 'Retrieved TopoType: '.$topoType;
+					SONOS_Log undef, 4, 'Retrieved TopoType: '.$topoType;
 					$fieldType = substr($topoType, 1);
 
 					# Master ermitteln, da nur dieser ein AlbumArt und einen normalen Titel erhalten wird
@@ -3354,13 +3358,13 @@ sub SONOS_ServiceCallback($$) {
 		# Wenn es ein Spotify-Track ist, dann den Benutzernamen sichern, damit man diesen beim nächsten Export zur Verfügung hat
 		if ($currentTrackURI =~ m/^x-sonos-spotify:/i) {
 			my $enqueuedTransportMetaData = decode_entities($1) if ($properties{LastChangeDecoded} =~ m/r:EnqueuedTransportURIMetaData val="(.*?)"\/>/i);
-			SONOS_Client_Notifier('ReadingsSingleUpdateIfChangedNoTrigger:undef:UserID_Spotify:'.$1) if ($enqueuedTransportMetaData =~ m/<desc .*?>(SA_.*?)<\/desc>/i);
+			SONOS_Client_Notifier('ReadingsSingleUpdateIfChangedNoTrigger:undef:UserID_Spotify:'.uri_escape($1)) if ($enqueuedTransportMetaData =~ m/<desc .*?>(SA_.*?)<\/desc>/i);
 		}
 
 		# Wenn es ein Napster/Rhapsody-Track ist, dann den Benutzernamen sichern, damit man diesen beim nächsten Export zur Verfügung hat
 		if ($currentTrackURI =~ m/^npsdy:/i) {
 			my $enqueuedTransportMetaData = decode_entities($1) if ($properties{LastChangeDecoded} =~ m/r:EnqueuedTransportURIMetaData val="(.*?)"\/>/i);
-			SONOS_Client_Notifier('ReadingsSingleUpdateIfChangedNoTrigger:undef:UserID_Napster:'.$1) if ($enqueuedTransportMetaData =~ m/<desc .*?>(SA_.*?)<\/desc>/i);
+			SONOS_Client_Notifier('ReadingsSingleUpdateIfChangedNoTrigger:undef:UserID_Napster:'.uri_escape($1)) if ($enqueuedTransportMetaData =~ m/<desc .*?>(SA_.*?)<\/desc>/i);
 		}
 
 		# Current Trackdauer ermitteln
@@ -4684,9 +4688,10 @@ sub SONOS_Client_SendReceive($) {
 	foreach my $so (@sender) {
 		send($so, $msg, 0);
 
-		select(undef, undef, undef, 0.4);
-
-		recv($so, $answer, 30000, 0);
+		do {
+			select(undef, undef, undef, 0.1);
+			recv($so, $answer, 30000, 0);
+		} while (!$answer);
 	}
 
 	select(undef, undef, undef, 0.1);

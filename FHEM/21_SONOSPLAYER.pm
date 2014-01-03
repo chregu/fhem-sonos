@@ -7,7 +7,7 @@
 #
 #  FHEM module to work with Sonos-Zoneplayers
 #
-#  Version 2.4 - December, 2013
+#  Version 2.5 - January, 2014
 #
 #  define <name> SONOSPLAYER <UDN>
 #
