@@ -240,6 +240,8 @@ my %sets = (
 );
 
 my $SONOS_UseTelnetForQuestions = 1;
+my $SONOS_UseTelnetForQuestions_Host = 'localhost';
+my $SONOS_UseTelnetForQuestions_Port = 7072;
 
 # Communication between the two "levels" of threads
 my $SONOS_ComObjectTransportQueue = Thread::Queue->new();
@@ -1964,9 +1966,20 @@ sub SONOS_Discover() {
 		return 1;
 	};
 
-	$SONOS_Controlpoint = UPnP::ControlPoint->new(SearchPort => 8008 + threads->tid() - 1, SubscriptionPort => 9009 + threads->tid() - 1, SubscriptionURL => '/eventSub', MaxWait => 20);
-	$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
-	$SONOS_Controlpoint->handle;
+	my $error;
+	do {
+		eval {
+			$SONOS_Controlpoint = UPnP::ControlPoint->new(SearchPort => 8008 + threads->tid() - 1, SubscriptionPort => 9009 + threads->tid() - 1, SubscriptionURL => '/eventSub', MaxWait => 20);
+			$SONOS_Search = $SONOS_Controlpoint->searchByType('urn:schemas-upnp-org:device:ZonePlayer:1', \&SONOS_Discover_Callback);
+			$SONOS_Controlpoint->handle;
+		};
+
+		$error = $@;
+		if ($error) {
+			SONOS_Log undef, 2, "Error during UPnP-Handling, restarting handling: $@";
+			SONOS_StopControlPoint();
+		}
+	} while ($error);
 
 	SONOS_Log undef, 3, 'UPnP-Thread wurde beendet.';
 	$SONOS_Thread = -1;
@@ -4752,7 +4765,7 @@ sub SONOS_Client_SendReceiveTelnet($) {
 	eval {
 		require Net::Telnet;
 		my $socket = Net::Telnet->new(Timeout => 20);
-		$socket->open(Host => 'localhost', Port => 7073);
+		$socket->open(Host => $SONOS_UseTelnetForQuestions_Host, Port => $SONOS_UseTelnetForQuestions_Port);
 		$socket->telnetmode(0);
 		$socket->cmd();
 
