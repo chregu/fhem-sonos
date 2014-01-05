@@ -33,6 +33,8 @@
 # 2.5:	Verwendung und Speicherung der Benutzer-IDs für Spotify und Napster wurden stabiler gegenüber Sonderzeichen gemacht
 #		Spotify-URLs werden im Reading 'currentTrackURI' und 'nextTrackURI' lesbarer abgelegt
 #		Ein Fehler beim Öffnen von M3U-Playlistdateien wurde behoben (dafür Danke an John)
+#		Für die Informationsanfragen an Fhem durch den SubProcess wird nun standardmäßig der Telnet-Port von Fhem verwendet. Wenn das fehlschlägt, wird auf den alten Mechanismus zurückgeschaltet
+#		Es wurde ein Standard-Layout für das RemoteControl-Hilfsmodul angelegt
 #
 # 2.4:	Initiale Lautstärkenermittlung wurde nun abgesichert, falls die Anfrage beim Player fehlschlägt
 #		Verbesserte Gruppenerkennung für die Anzeige der Informationen wie Titel usw.
@@ -190,7 +192,7 @@ use feature 'state';
 ########################################################
 # Standards aus FHEM einbinden
 ########################################################
-use vars qw{%attr %defs %intAt};
+use vars qw{%attr %defs %intAt %data};
 
 
 ########################################################
@@ -203,6 +205,8 @@ sub SONOS_Log($$$);
 sub SONOS_StartClientProcessIfNeccessary($);
 sub SONOS_Client_Notifier($);
 sub SONOS_Client_ConsumeMessage($$);
+
+sub SONOS_RCLayout();
 
 
 ########################################################
@@ -234,6 +238,8 @@ my %sets = (
 	'StopAll' => '',
 	'PauseAll' => ''
 );
+
+my $SONOS_UseTelnetForQuestions = 1;
 
 # Communication between the two "levels" of threads
 my $SONOS_ComObjectTransportQueue = Thread::Queue->new();
@@ -320,7 +326,24 @@ sub SONOS_Initialize ($) {
 
 	$hash->{AttrList}= 'pingType:'.join(',', @SONOS_PINGTYPELIST).' targetSpeakDir targetSpeakURL targetSpeakFileTimestamp:0,1 targetSpeakFileHashCache:0,1 Speak1 Speak2 Speak3 Speak4';
 
+	$data{RC_layout}{Sonos} = "SONOS_RCLayout";
+
 	return undef;
+}
+
+########################################################################################
+#
+# SONOS_RCLayout - Returns the Standard-Layout-Definition for a RemoteControl-Device
+#
+########################################################################################
+sub SONOS_RCLayout() {
+	my @rows = ();
+
+	push @rows, "Play:PLAY,Pause:PAUSE,Previous:REWIND,Next:FF,VolumeD:VOLDOWN,VolumeU:VOLUP,MuteT:MUTE";
+	push @rows, "attr rc_iconpath icons/remotecontrol";
+	push @rows, "attr rc_iconprefix black_btn_";
+
+	return @rows;
 }
 
 ########################################################################################
@@ -606,54 +629,11 @@ sub SONOS_Read($) {
 				SONOS_readingsSingleUpdateIfChanged($hash, 'AlarmListIDs', join(',', sort {$a <=> $b} @alarmIDs), 0);
 				SONOS_readingsSingleUpdateIfChanged($hash, 'AlarmListVersion', $2, 1);
 			} elsif ($line =~ m/QA:(.*?):(.*?):(.*)/) { # Wenn ein QA (Question-Attribut) gefordert wurde, dann auch zurückliefern
-				my $chash;
-				if (lc($1) eq 'undef') {
-					$chash = SONOS_getDeviceDefHash(undef);
-				} else {
-					$chash = SONOS_getSonosPlayerByUDN($1);
-				}
-
-				if ($chash) {
-					SONOS_Log undef, 4, "QA-Anfrage(".$chash->{NAME}."): $1:$2:$3";
-					DevIo_SimpleWrite($hash, "A:$1:$2:".AttrVal($chash->{NAME}, $2, $3)."\r\n", 0);
-				} else {
-					SONOS_Log undef, 1, "Fehlerhafte QA-Anfrage: $1:$2:$3";
-					DevIo_SimpleWrite($hash, "A:$1:$2:$3\r\n", 0);
-				}
+				DevIo_SimpleWrite($hash, SONOS_AnswerQuery($line), 0);
 			} elsif ($line =~ m/QR:(.*?):(.*?):(.*)/) { # Wenn ein QR (Question-Reading) gefordert wurde, dann auch zurückliefern
-				my $chash;
-				if (lc($1) eq 'undef') {
-					$chash = SONOS_getDeviceDefHash(undef);
-				} else {
-					$chash = SONOS_getSonosPlayerByUDN($1);
-				}
-
-				if ($chash) {
-					SONOS_Log undef, 4, "QR-Anfrage(".$chash->{NAME}."): $1:$2:$3";
-					DevIo_SimpleWrite($hash, "R:$1:$2:".ReadingsVal($chash->{NAME}, $2, $3)."\r\n", 0);
-				} else {
-					SONOS_Log undef, 1, "Fehlerhafte QR-Anfrage: $1:$2:$3";
-					DevIo_SimpleWrite($hash, "R:$1:$2:$3\r\n", 0);
-				}
+				DevIo_SimpleWrite($hash, SONOS_AnswerQuery($line), 0);
 			} elsif ($line =~ m/QD:(.*?):(.*?):(.*)/) { # Wenn ein QD (Question-Definition) gefordert wurde, dann auch zurückliefern
-				my $chash;
-				if (lc($1) eq 'undef') {
-					$chash = SONOS_getDeviceDefHash(undef);
-				} else {
-					$chash = SONOS_getSonosPlayerByUDN($1);
-				}
-
-				if ($chash) {
-					SONOS_Log undef, 4, "QD-Anfrage(".$chash->{NAME}."): $1:$2:$3";
-					if ($chash->{$2}) {
-						DevIo_SimpleWrite($hash, "D:$1:$2:".$chash->{$2}."\r\n", 0);
-					} else {
-						DevIo_SimpleWrite($hash, "D:$1:$2:$3\r\n", 0);
-					}
-				} else {
-					SONOS_Log undef, 1, "Fehlerhafte QD-Anfrage: $1:$2:$3";
-					DevIo_SimpleWrite($hash, "D:$1:$2:$3\r\n", 0);
-				}
+				DevIo_SimpleWrite($hash, SONOS_AnswerQuery($line), 0);
 			} elsif ($line =~ m/DoWorkAnswer:(.*?):(.*?):(.*)/) {
 				my $chash;
 				if (lc($1) eq 'undef') {
@@ -671,6 +651,68 @@ sub SONOS_Read($) {
 			} else {
 				SONOS_DoTriggerInternal('Main', $line);
 			}
+		}
+	}
+}
+
+########################################################################################
+#
+# SONOS_AnswerQuery - Create the approbriate answer for the given Question
+#
+# Parameter line = The line of Question
+#
+########################################################################################
+sub SONOS_AnswerQuery($) {
+	my ($line) = @_;
+
+	if ($line =~ m/QA:(.*?):(.*?):(.*)/) { # Wenn ein QA (Question-Attribut) gefordert wurde, dann auch zurückliefern
+		my $chash;
+		if (lc($1) eq 'undef') {
+			$chash = SONOS_getDeviceDefHash(undef);
+		} else {
+			$chash = SONOS_getSonosPlayerByUDN($1);
+		}
+
+		if ($chash) {
+			SONOS_Log undef, 4, "QA-Anfrage(".$chash->{NAME}."): $1:$2:$3";
+			return "A:$1:$2:".AttrVal($chash->{NAME}, $2, $3)."\r\n";
+		} else {
+			SONOS_Log undef, 1, "Fehlerhafte QA-Anfrage: $1:$2:$3";
+			return "A:$1:$2:$3\r\n";
+		}
+	} elsif ($line =~ m/QR:(.*?):(.*?):(.*)/) { # Wenn ein QR (Question-Reading) gefordert wurde, dann auch zurückliefern
+		my $chash;
+		if (lc($1) eq 'undef') {
+			$chash = SONOS_getDeviceDefHash(undef);
+		} else {
+			$chash = SONOS_getSonosPlayerByUDN($1);
+		}
+
+		if ($chash) {
+			SONOS_Log undef, 4, "QR-Anfrage(".$chash->{NAME}."): $1:$2:$3";
+			return "R:$1:$2:".ReadingsVal($chash->{NAME}, $2, $3)."\r\n";
+		} else {
+			SONOS_Log undef, 1, "Fehlerhafte QR-Anfrage: $1:$2:$3";
+			return "R:$1:$2:$3\r\n";
+		}
+	} elsif ($line =~ m/QD:(.*?):(.*?):(.*)/) { # Wenn ein QD (Question-Definition) gefordert wurde, dann auch zurückliefern
+		my $chash;
+		if (lc($1) eq 'undef') {
+			$chash = SONOS_getDeviceDefHash(undef);
+		} else {
+			$chash = SONOS_getSonosPlayerByUDN($1);
+		}
+
+		if ($chash) {
+			SONOS_Log undef, 4, "QD-Anfrage(".$chash->{NAME}."): $1:$2:$3";
+			if ($chash->{$2}) {
+				return "D:$1:$2:".$chash->{$2}."\r\n";
+			} else {
+				return "D:$1:$2:$3\r\n";
+			}
+		} else {
+			SONOS_Log undef, 1, "Fehlerhafte QD-Anfrage: $1:$2:$3";
+			return "D:$1:$2:$3\r\n";
 		}
 	}
 }
@@ -1122,7 +1164,6 @@ sub SONOS_Discover() {
 								$ramptype = 'ALARM_RAMP_TYPE';
 							}
 							my $ramptime = $SONOS_RenderingControlProxy{$udn}->RampToVolume(0, 'Master', $ramptype, $value1, 0, '')->getValue('RampTime');
-							# SONOS_Client_Notifier();
 
 							SONOS_MakeSigHandlerReturnValue($udn, 'LastActionResult', ucfirst($workType).': Ramp to '.$value1.' with Type '.$params[1].' started');
 						} else {
@@ -4701,12 +4742,49 @@ sub SONOS_Client_SendReceive($) {
 }
 
 ########################################################################################
+# SONOS_Client_SendReceiveTelnet: Send and receive messages
+########################################################################################
+sub SONOS_Client_SendReceiveTelnet($) {
+	my ($msg) = @_;
+
+	SONOS_Log undef, 4, "Telnet-Anfrage: $msg";
+
+	eval {
+		require Net::Telnet;
+		my $socket = Net::Telnet->new(Timeout => 20);
+		$socket->open(Host => 'localhost', Port => 7073);
+		$socket->telnetmode(0);
+		$socket->cmd();
+
+		my @lines = $socket->cmd('{ SONOS_AnswerQuery("'.$msg.'") }');
+		my $answer = $lines[0];
+		$answer =~ s/[\r\n]*$//;
+
+		$socket->close();
+
+		return $answer;
+	};
+	if ($@) {
+		SONOS_Log undef, 4, "Bei einer Telnet-Anfrage ist ein Fehler aufgetreten, es wird auf Normalanfrage umgestellt: $@";
+		$SONOS_UseTelnetForQuestions = 0;
+		return $3 if ($msg =~ m/Q.:(.*?):(.*?):(.*)/);
+	}
+
+	return "Error during processing: $msg";
+}
+
+########################################################################################
 # SONOS_Client_AskAttribute: Asks FHEM for a AttributeValue according to the given Attributename
 ########################################################################################
 sub SONOS_Client_AskAttribute($$$) {
 	my ($udn, $name, $default) = @_;
 
-	my $val = SONOS_Client_SendReceive('QA:'.$udn.':'.$name.':'.$default);
+	my $val;
+	if ($SONOS_UseTelnetForQuestions) {
+		$val = SONOS_Client_SendReceiveTelnet('QA:'.$udn.':'.$name.':'.$default);
+	} else {
+		$val = SONOS_Client_SendReceive('QA:'.$udn.':'.$name.':'.$default);
+	}
 	$val =~ s/[\r\n]*$//;
 	$val = $1 if ($val =~ m/A:$udn:$name:(.*)/i);
 
@@ -4719,7 +4797,12 @@ sub SONOS_Client_AskAttribute($$$) {
 sub SONOS_Client_AskReading($$$) {
 	my ($udn, $name, $default) = @_;
 
-	my $val = SONOS_Client_SendReceive('QR:'.$udn.':'.$name.':'.$default);
+	my $val;
+	if ($SONOS_UseTelnetForQuestions) {
+		$val = SONOS_Client_SendReceiveTelnet('QR:'.$udn.':'.$name.':'.$default);
+	} else {
+		$val = SONOS_Client_SendReceive('QR:'.$udn.':'.$name.':'.$default);
+	}
 	$val =~ s/[\r\n]*$//;
 	$val = $1 if ($val =~ m/R:$udn:$name:(.*)/i);
 
@@ -4732,7 +4815,12 @@ sub SONOS_Client_AskReading($$$) {
 sub SONOS_Client_AskDefinition($$$) {
 	my ($udn, $name, $default) = @_;
 
-	my $val = SONOS_Client_SendReceive('QD:'.$udn.':'.$name.':'.$default);
+	my $val;
+	if ($SONOS_UseTelnetForQuestions) {
+		$val = SONOS_Client_SendReceiveTelnet('QD:'.$udn.':'.$name.':'.$default);
+	} else {
+		$val = SONOS_Client_SendReceive('QD:'.$udn.':'.$name.':'.$default);
+	}
 	$val =~ s/[\r\n]*$//;
 	$val = $1 if ($val =~ m/D:$udn:$name:(.*)/i);
 
